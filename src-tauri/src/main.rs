@@ -144,23 +144,30 @@ async fn translate(window: tauri::Window, state: State<'_, AppState>, text: Stri
                 }
 
                 // Manual buffer management for better compatibility with Gemma 2 tokens
-                let mut buf = vec![0u8; 128]; // 128 bytes is sufficient for most tokens
-                
-                match model.token_to_piece(token, &mut buf, Special::None) {
-                    Ok(len) => {
-                        let piece = String::from_utf8_lossy(&buf[..len]).to_string();
-                        log(format!("Generated token {}: '{}'", token.0, piece));
-                        
-                        // Emit immediately
-                        let payload = TranslationEvent {
-                            chunk: piece,
-                            is_last: false,
-                        };
-                        window.emit("translation-event", payload).map_err(|e| e.to_string())?;
+                // We use token_data to get the raw bytes, then decode them manually
+                match model.token_get_data(token) {
+                    Ok(token_data) => {
+                         // Gemma 2 etc might yield non-utf8 fragments.
+                         // We can just try to stringify the token content directly.
+                         // token_data.text() gives Vec<u8> which might be partial utf-8
+                         match token_data.text() {
+                             Ok(bytes) => {
+                                 let piece = String::from_utf8_lossy(bytes).to_string();
+                                 log(format!("Generated token {}: '{}'", token.0, piece));
+                                 
+                                  let payload = TranslationEvent {
+                                    chunk: piece,
+                                    is_last: false,
+                                };
+                                window.emit("translation-event", payload).map_err(|e| e.to_string())?;
+                             },
+                             Err(e) => {
+                                  log(format!("Failed to get text for token {}: {}", token.0, e));
+                             }
+                         }
                     }
                     Err(e) => {
-                        // Log but don't stop processing - some tokens may fail but others succeed
-                        log(format!("Failed to convert token {}: {}", token.0, e));
+                        log(format!("Failed to get data for token {}: {}", token.0, e));
                     }
                 }
 
