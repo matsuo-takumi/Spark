@@ -1,4 +1,5 @@
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::path::Path;
 use std::num::{NonZeroU32, NonZeroU16};
 use tauri::{Manager, State, Emitter};
@@ -13,6 +14,8 @@ use llama_cpp_2::model::Special;
 struct AppState {
     _backend: LlamaBackend,
     model: Mutex<Option<LlamaModel>>,
+    current_model_id: Mutex<Option<String>>,
+    is_cancelled: AtomicBool,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -22,29 +25,67 @@ struct TranslationEvent {
 }
 
 #[tauri::command]
-async fn translate(window: tauri::Window, state: State<'_, AppState>, text: String, source_lang: String, target_lang: String) -> Result<(), String> {
+async fn cancel_translation(window: tauri::Window, state: State<'_, AppState>) -> Result<(), String> {
+    state.is_cancelled.store(true, Ordering::Relaxed);
+    window.emit("debug-log", "Cancellation requested".to_string()).unwrap_or(());
+    Ok(())
+}
+
+#[tauri::command]
+async fn translate(window: tauri::Window, state: State<'_, AppState>, text: String, source_lang: String, target_lang: String, model_id: String) -> Result<(), String> {
+    // Reset cancellation flag
+    state.is_cancelled.store(false, Ordering::Relaxed);
+
     let log = |msg: String| {
         eprintln!("{}", msg);
         let _ = window.emit("debug-log", msg);
     };
 
-    log(format!("Starting translation command: {} -> {}", source_lang, target_lang));
+    log(format!("Starting translation logic: {} -> {} using model '{}'", source_lang, target_lang, model_id));
     
-    // Lazy load model if not already loaded
+    // Check if we need to switch models
+    let mut should_reload = false;
+    {
+        let mut current_id_guard = state.current_model_id.lock().unwrap();
+        if current_id_guard.as_deref() != Some(&model_id) {
+            log(format!("Model switch requested: {:?} -> {}", *current_id_guard, model_id));
+            should_reload = true;
+            *current_id_guard = Some(model_id.clone());
+        }
+    }
+
+    // Lazy load model or reload if switched
     {
         let mut model_guard = state.model.lock().unwrap();
+        
+        if should_reload {
+            // Unload previous model first
+            if model_guard.is_some() {
+                log("Unloading previous model...".to_string());
+                *model_guard = None;
+            }
+        }
+
         if model_guard.is_none() {
-            log("Model not loaded, loading now...".to_string());
+            log(format!("Loading model '{}'...", model_id));
+            
+            let model_filename = match model_id.as_str() {
+                "balanced" => "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+                "high" => "gemma-2-2b-jpn-it-Q4_K_M.gguf",
+                // Default to light/0.5b for safety or explicit "light"
+                _ => "qwen2.5-0.5b-instruct-q4_k_m.gguf", 
+            };
+
             let potential_paths = vec![
-                std::path::Path::new("models/gemma-2-2b-jpn-it-Q4_K_M.gguf"),
-                std::path::Path::new("../models/gemma-2-2b-jpn-it-Q4_K_M.gguf"),
-                std::path::Path::new("C:/models/gemma-2-2b-jpn-q4_k_m.gguf"),
+                std::path::PathBuf::from(format!("models/{}", model_filename)),
+                std::path::PathBuf::from(format!("../models/{}", model_filename)),
+                std::path::PathBuf::from(format!("C:/models/{}", model_filename)),
             ];
 
             let model_path = potential_paths
                 .iter()
                 .find(|p| p.exists())
-                .ok_or("Model file not found in any expected location")?;
+                .ok_or(format!("Model file '{}' not found in expected locations", model_filename))?;
 
             log(format!("Loading model from {:?}", model_path));
             let model_params = LlamaModelParams::default();
@@ -56,8 +97,6 @@ async fn translate(window: tauri::Window, state: State<'_, AppState>, text: Stri
         }
     }
     
-    // Release lock and re-acquire? No, we need it. But we can clone the Arc if needed.
-    // Actually we just need to access the model.
     let model_guard = state.model.lock().unwrap();
     
     if let Some(model) = model_guard.as_ref() {
@@ -94,6 +133,12 @@ async fn translate(window: tauri::Window, state: State<'_, AppState>, text: Stri
         log(format!("Processing {} chunks", chunks.len()));
 
         for (i, chunk_text) in chunks.iter().enumerate() {
+            // Check cancellation before processing chunk
+            if state.is_cancelled.load(Ordering::Relaxed) {
+                log("Translation cancelled by user.".to_string());
+                break;
+            }
+
             log(format!("Processing chunk {}: {}", i, chunk_text));
             let mut ctx = model.new_context(&state._backend, ctx_params.clone())
                 .map_err(|e| e.to_string())?;
@@ -105,12 +150,24 @@ async fn translate(window: tauri::Window, state: State<'_, AppState>, text: Stri
             } else {
                 "Translate the following text."
             };
-
-            let prompt = format!(
-                "<start_of_turn>user\n{}\n\nText:\n{}\n<end_of_turn>\n<start_of_turn>model\n",
-                instruction,
-                chunk_text
-            );
+            
+            // Determine prompt format based on model_id
+            let prompt = if model_id == "high" {
+                // Gemma Format - Enforce strictness to avoid "context" or reasoning
+                let distinct_instruction = format!("{} Output ONLY the translated text. Do not provide any explanations, notes, or context.", instruction);
+                format!(
+                    "<start_of_turn>user\n{}\n\nText:\n{}\n<end_of_turn>\n<start_of_turn>model\n",
+                    distinct_instruction,
+                    chunk_text
+                )
+            } else {
+                // Qwen Format (ChatML) - shared by 0.5B and 1.5B
+                format!(
+                    "<|im_start|>system\nYou are a helpful translator. {}<|im_end|>\n<|im_start|>user\n{}\n<|im_end|>\n<|im_start|>assistant\n",
+                    instruction,
+                    chunk_text
+                )
+            };
             
             log(format!("Prompt generated (len={}): {}", prompt.len(), prompt));
 
@@ -133,6 +190,13 @@ async fn translate(window: tauri::Window, state: State<'_, AppState>, text: Stri
             
             // Streaming Loop
             for loop_idx in 0..1024 {
+                // Check cancellation in generation loop
+                if state.is_cancelled.load(Ordering::Relaxed) {
+                    log("Translation cancelled by user.".to_string());
+                    // Emit cancellation event/message if needed, or just break
+                    break;
+                }
+
                 let last_token_idx = batch.n_tokens() - 1;
                 let candidates = ctx.candidates_ith(last_token_idx);
                 let mut candidates_array = LlamaTokenDataArray::from_iter(candidates, false);
@@ -144,8 +208,6 @@ async fn translate(window: tauri::Window, state: State<'_, AppState>, text: Stri
                 }
 
                 // Manual buffer management for better compatibility with Gemma 2 tokens
-                // Manual buffer management for better compatibility with Gemma 2 tokens
-                // We use token_to_piece_bytes with a sufficiently large buffer (1024 bytes).
                 match model.token_to_piece_bytes(token, 1024, false, None) {
                     Ok(bytes) => {
                          let piece = String::from_utf8_lossy(&bytes).to_string();
@@ -170,6 +232,11 @@ async fn translate(window: tauri::Window, state: State<'_, AppState>, text: Stri
                 ctx.decode(&mut batch).map_err(|e| e.to_string())?;
             }
             
+            // If cancelled, stop processing further chunks
+            if state.is_cancelled.load(Ordering::Relaxed) {
+                break;
+            }
+
             if i < chunks.len() - 1 {
                  let payload = TranslationEvent {
                     chunk: "\n".to_string(),
@@ -179,16 +246,32 @@ async fn translate(window: tauri::Window, state: State<'_, AppState>, text: Stri
             }
         }
         
+        // Final event to signal end/cancellation
         let payload = TranslationEvent {
             chunk: "".to_string(),
             is_last: true,
         };
         window.emit("translation-event", payload).map_err(|e| e.to_string())?;
         
-        log("Translation complete".to_string());
+        log("Translation complete/cancelled".to_string());
         Ok(())
     } else {
         Err("Model not loaded".to_string())
+    }
+}
+
+#[tauri::command]
+async fn unload_model(window: tauri::Window, state: State<'_, AppState>) -> Result<(), String> {
+    let mut model_guard = state.model.lock().unwrap();
+    let mut current_id_guard = state.current_model_id.lock().unwrap();
+    if model_guard.is_some() {
+        *model_guard = None;
+        *current_id_guard = None;
+        eprintln!("Model unloaded");
+        window.emit("debug-log", "Model unloaded manually to save memory".to_string()).unwrap_or(());
+        Ok(())
+    } else {
+        Ok(()) // Already unloaded
     }
 }
 
@@ -200,6 +283,8 @@ fn main() {
     let state = AppState {
         _backend: backend,
         model: Mutex::new(None),
+        current_model_id: Mutex::new(None),
+        is_cancelled: AtomicBool::new(false),
     };
 
     tauri::Builder::default()
@@ -210,7 +295,7 @@ fn main() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![translate])
+        .invoke_handler(tauri::generate_handler![translate, unload_model, cancel_translation])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
