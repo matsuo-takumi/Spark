@@ -21,14 +21,21 @@ function App() {
         const unlistenPromise = listen<{ chunk: string; is_last: boolean }>("translation-event", (event) => {
             console.log("📥 Event received:", event.payload.chunk.substring(0, 50), "is_last:", event.payload.is_last);
 
-            setTranslatedText((prev) => {
-                const newText = prev === "翻訳中..." ? event.payload.chunk : prev + event.payload.chunk;
-                console.log("Updated text length:", newText.length);
-                return newText;
-            });
+            // Only update if chunk is not empty
+            if (event.payload.chunk) {
+                setTranslatedText((prev) => {
+                    const newText = prev === "翻訳中..." ? event.payload.chunk : prev + event.payload.chunk;
+                    console.log("Updated text length:", newText.length);
+                    return newText;
+                });
+            }
 
             if (event.payload.is_last) {
                 setIsTranslating(false);
+                // Fallback if translation resulted in no output
+                setTranslatedText(prev =>
+                    prev === "翻訳中..." ? "翻訳に失敗しました。バックエンドのログを確認してください。" : prev
+                );
                 console.log("✅ Translation complete");
             }
         });

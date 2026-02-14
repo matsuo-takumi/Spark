@@ -143,10 +143,12 @@ async fn translate(window: tauri::Window, state: State<'_, AppState>, text: Stri
                     break;
                 }
 
-                let output_bytes = model.token_to_piece_bytes(token, 0, false, NonZeroU16::new(256));
-                match output_bytes {
-                    Ok(bytes) => {
-                        let piece = String::from_utf8_lossy(&bytes).to_string();
+                // Manual buffer management for better compatibility with Gemma 2 tokens
+                let mut buf = vec![0u8; 128]; // 128 bytes is sufficient for most tokens
+                
+                match model.token_to_piece(token, &mut buf, Special::None) {
+                    Ok(len) => {
+                        let piece = String::from_utf8_lossy(&buf[..len]).to_string();
                         log(format!("Generated token {}: '{}'", token.0, piece));
                         
                         // Emit immediately
@@ -157,8 +159,7 @@ async fn translate(window: tauri::Window, state: State<'_, AppState>, text: Stri
                         window.emit("translation-event", payload).map_err(|e| e.to_string())?;
                     }
                     Err(e) => {
-                         // Try smaller/default if 128 is somehow invalid, but 128 is safe.
-                         // Actually the error was Insufficient Buffer Space, so providing buffer fixes it.
+                        // Log but don't stop processing - some tokens may fail but others succeed
                         log(format!("Failed to convert token {}: {}", token.0, e));
                     }
                 }
