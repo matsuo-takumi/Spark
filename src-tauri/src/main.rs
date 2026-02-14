@@ -273,21 +273,14 @@ async fn translate(window: tauri::Window, state: State<'_, AppState>, text: Stri
                  // No, `token_to_piece_bytes(token, lstrip, special)`?
                  // We don't have the signature.
                  
-                 // Let's try the most robust way:
-                 // Use `llama_token_to_piece` from the `llama_cpp_2::llama_backend` or unsafe if needed.
-                 
-                 // Actually, looking at crates.io for 0.1.133:
-                 // `fn token_to_piece(&self, token: LlamaToken)` -> `Vec<u8>` is common in old versions.
-                 
-                 // Let's try simply:
-                 let output_bytes = model.token_to_piece_bytes(token, 0, false, std::num::NonZeroU16::new(0)); // 0 = automatic?
-                 // The previous code had `NonZeroU16::new(64)`.
-                 // Let's try passing `None`?
-                 
-                 match model.token_to_piece_bytes(token, 0, false, None) {
+                // We use token_to_piece_bytes with 0/None to allow auto-sizing
+                // The signature appears to be (token, buffer_size_hint, lstrip, special_handling)
+                // Passing None for the last argument (if it's Option<NonZeroU16>) effectively asks for default/auto behavior
+                match model.token_to_piece_bytes(token, 0, false, None) {
                     Ok(bytes) => {
-                        let piece = String::from_utf8_lossy(&bytes).to_string();
-                        log(format!("Generated token {}: '{}'", token.0, piece));
+                         let piece = String::from_utf8_lossy(&bytes).to_string();
+                         log(format!("Generated token {}: '{}'", token.0, piece));
+                         
                          let payload = TranslationEvent {
                             chunk: piece,
                             is_last: false,
@@ -295,17 +288,18 @@ async fn translate(window: tauri::Window, state: State<'_, AppState>, text: Stri
                         window.emit("translation-event", payload).map_err(|e| e.to_string())?;
                     },
                     Err(_) => {
-                        // Try with larger buffer explicitly if None fails?
-                         match model.token_to_piece_bytes(token, 0, false, std::num::NonZeroU16::new(256)) {
+                        // Fallback: Try with explicit larger buffer if auto-sizing fails
+                        // Some versions might require a hint.
+                        match model.token_to_piece_bytes(token, 0, false, std::num::NonZeroU16::new(256)) {
                             Ok(bytes) => {
                                 let piece = String::from_utf8_lossy(&bytes).to_string();
                                 let payload = TranslationEvent { chunk: piece, is_last: false };
                                 window.emit("translation-event", payload).map_err(|e| e.to_string())?;
                             },
-                             Err(e) => log(format!("Failed token {}: {}", token.0, e)),
-                         }
+                            Err(e) => log(format!("Failed to convert token {}: {}", token.0, e)),
+                        }
                     }
-                 }
+                }
 
                 batch.clear();
                 batch.add(token, current_pos, &[0], true).map_err(|e| e.to_string())?;
