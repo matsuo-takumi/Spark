@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -15,6 +15,12 @@ function App() {
     const [isTranslating, setIsTranslating] = useState(false);
     const [modelLoaded, setModelLoaded] = useState(false);
     const [modelId, setModelId] = useState("balanced"); // Default to Balanced (1.5B)
+
+    // Optimization: Use ref for translatedText to avoid re-binding event listeners
+    const translatedTextRef = useRef("");
+    useEffect(() => {
+        translatedTextRef.current = translatedText;
+    }, [translatedText]);
 
     const [theme, setTheme] = useState(() => {
         if (typeof window !== "undefined" && window.localStorage) {
@@ -38,6 +44,54 @@ function App() {
     const toggleTheme = () => {
         setTheme((prev) => (prev === "dark" ? "light" : "dark"));
     };
+
+    const [fontSize, setFontSize] = useState(() => {
+        if (typeof window !== "undefined" && window.localStorage) {
+            const saved = parseInt(window.localStorage.getItem("fontSize") || "24");
+            return isNaN(saved) ? 24 : saved;
+        }
+        return 24;
+    });
+
+    const [customPrompt, setCustomPrompt] = useState(() => {
+        if (typeof window !== "undefined" && window.localStorage) {
+            return window.localStorage.getItem("customPrompt") || "";
+        }
+        return "";
+    });
+
+    const [showPromptSettings, setShowPromptSettings] = useState(false);
+
+    const PROMPT_PRESETS = [
+        { label: "Default", value: "" },
+        { label: "Natural", value: "Translate into natural, native-sounding style." },
+        { label: "Casual", value: "Translate into casual, conversational style." },
+        { label: "Formal", value: "Translate into polite, formal style." },
+        { label: "Business", value: "Translate into professional business style." },
+        { label: "Summarize", value: "Summarize the key points of the text." },
+        { label: "Explain", value: "Explain the meaning of the text in simple terms." },
+    ];
+
+    useEffect(() => {
+        localStorage.setItem("fontSize", fontSize.toString());
+    }, [fontSize]);
+
+    useEffect(() => {
+        localStorage.setItem("customPrompt", customPrompt);
+    }, [customPrompt]);
+
+    useEffect(() => {
+        const handleWheel = (e: WheelEvent) => {
+            if (e.ctrlKey) {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? -2 : 2;
+                setFontSize(prev => Math.min(Math.max(prev + delta, 12), 72));
+            }
+        };
+
+        window.addEventListener("wheel", handleWheel, { passive: false });
+        return () => window.removeEventListener("wheel", handleWheel);
+    }, []);
 
     // Auto-unload timer ref
     const unloadTimerRef = useRef<number | null>(null);
@@ -108,12 +162,13 @@ function App() {
             setIsTranslating(true);
             setModelLoaded(true); // Optimistic update, actual update via log
             setTranslatedText("翻訳中...");
-            console.log("Calling invoke with:", sourceLang, "→", targetLang, "Model:", modelId);
+            console.log("Calling invoke with:", sourceLang, "→", targetLang, "Model:", modelId, "Prompt:", customPrompt);
             await invoke("translate", {
                 text: inputText,
                 sourceLang,
                 targetLang,
-                modelId
+                modelId,
+                customPrompt // Pass custom prompt to backend
             });
             console.log("✅ Invoke completed successfully");
         } catch (err) {
@@ -139,20 +194,33 @@ function App() {
         }
     }
 
-    const [isSwapping, setIsSwapping] = useState(false);
+    const [swapRotation, setSwapRotation] = useState(0);
 
-    const handleSwapLanguages = () => {
-        setIsSwapping(true);
-        setTimeout(() => setIsSwapping(false), 300);
+    const handleSwapLanguages = useCallback(() => {
+        setSwapRotation(prev => prev === 0 ? 180 : 0);
 
-        const temp = sourceLang;
-        setSourceLang(targetLang);
-        setTargetLang(temp);
+        setSourceLang(prev => prev === "English" ? "Japanese" : "English");
+        setTargetLang(prev => prev === "Japanese" ? "English" : "Japanese");
+    }, []);
 
-        // User requested NOT to swap text. Left is always input, Right is always output.
-        // potentially we could re-trigger translation here if the input text fits the new source language,
-        // but for now we just swap the labels.
-    };
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.ctrlKey && e.key === "Tab") {
+                e.preventDefault();
+                handleSwapLanguages();
+            }
+            // Ctrl + Shift + C to Copy
+            if (e.ctrlKey && e.shiftKey && (e.key === 'c' || e.key === 'C')) {
+                e.preventDefault();
+                navigator.clipboard.writeText(translatedTextRef.current);
+                // Optional: We could trigger a toast notification here if we had one
+                console.log("Copied to clipboard via shortcut");
+            }
+        };
+
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [handleSwapLanguages]); // No need for translatedText dependency now
 
     return (
         <div className="w-full h-full bg-[#f5f7f8] dark:bg-[#101922] font-display flex flex-col overflow-hidden relative group transition-colors duration-300">
@@ -160,7 +228,7 @@ function App() {
             <header data-tauri-drag-region className="h-16 border-b border-gray-200 dark:border-white/10 flex items-center justify-between px-6 bg-white dark:bg-black shrink-0 relative z-10">
                 {/* Drag Handler - Removed separate div, now on header */}
 
-                <div className="flex items-center space-x-8 z-10 relative">
+                <div className="flex items-center space-x-6 z-10 relative">
                     {/* Source Language */}
                     <button
                         onClick={() => setSourceLang(sourceLang === "English" ? "Japanese" : "English")}
@@ -173,7 +241,12 @@ function App() {
                         onClick={handleSwapLanguages}
                         className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 text-gray-400 dark:text-gray-500 hover:text-[#258cf4] dark:hover:text-[#258cf4] transition-all active:scale-95 group/swap"
                     >
-                        <span className={`material-icons text-xl transition-transform duration-300 transform group-hover/swap:scale-110 ${isSwapping ? "rotate-180 text-[#258cf4]" : ""}`}>swap_horiz</span>
+                        <span
+                            className="material-icons text-xl transition-transform duration-300 transform group-hover/swap:scale-110"
+                            style={{ transform: `rotate(${swapRotation}deg)` }}
+                        >
+                            swap_horiz
+                        </span>
                     </button>
                     {/* Target Language */}
                     <button
@@ -182,6 +255,59 @@ function App() {
                     >
                         {targetLang}
                     </button>
+
+                    {/* Divider using CSS border or explicit div */}
+                    <div className="h-6 w-px bg-gray-300 dark:bg-white/20 mx-2"></div>
+
+                    {/* Prompt Settings Button */}
+                    <div className="relative">
+                        <button
+                            onClick={() => setShowPromptSettings(!showPromptSettings)}
+                            className={`p-2 rounded-full transition-colors flex items-center justify-center ${showPromptSettings || customPrompt ? "text-[#258cf4] bg-blue-50 dark:bg-blue-500/20" : "text-gray-400 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/10 hover:text-gray-600 dark:hover:text-white"}`}
+                            title="Translation Prompt Settings"
+                        >
+                            <span className="material-icons text-[22px]">tips_and_updates</span>
+                            {customPrompt && <span className="absolute top-1 right-1 w-2 h-2 bg-[#258cf4] rounded-full"></span>}
+                        </button>
+
+                        {/* Prompt Popover */}
+                        {showPromptSettings && (
+                            <>
+                                {/* Backdrop */}
+                                <div className="fixed inset-0 z-40" onClick={() => setShowPromptSettings(false)}></div>
+
+                                {/* Popover Content */}
+                                <div className="absolute top-full left-0 mt-3 w-[400px] bg-white dark:bg-[#1a1a1a] rounded-xl shadow-2xl border border-gray-200 dark:border-white/10 z-50 p-5 transform origin-top-left animate-in fade-in zoom-in-95 duration-100">
+                                    <div className="flex justify-between items-center mb-3">
+                                        <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wider">User Prompt</h3>
+                                        <button onClick={() => setCustomPrompt("")} className="text-xs text-red-500 hover:text-red-600 hover:underline">Reset</button>
+                                    </div>
+
+                                    <textarea
+                                        value={customPrompt}
+                                        onChange={(e) => setCustomPrompt(e.target.value)}
+                                        placeholder="Customize instructions for the AI... (e.g., 'Translate into Kansai dialect', 'Summarize this')"
+                                        className="w-full h-24 p-3 bg-gray-50 dark:bg-black/50 border border-gray-200 dark:border-white/10 rounded-lg text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:border-[#258cf4] focus:ring-1 focus:ring-[#258cf4] resize-none mb-4 placeholder-gray-400"
+                                    />
+
+                                    <div className="space-y-2">
+                                        <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Presets:</p>
+                                        <div className="flex flex-wrap gap-2">
+                                            {PROMPT_PRESETS.filter(p => p.value).map((preset) => (
+                                                <button
+                                                    key={preset.label}
+                                                    onClick={() => setCustomPrompt(preset.value)}
+                                                    className="px-3 py-1.5 text-xs rounded-full bg-gray-100 dark:bg-white/5 border border-transparent hover:border-[#258cf4] hover:text-[#258cf4] text-gray-600 dark:text-gray-300 transition-all border-gray-200 dark:border-white/10"
+                                                >
+                                                    {preset.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
                 </div>
 
                 {/* Window Controls */}
@@ -254,7 +380,8 @@ function App() {
                 {/* Input Area (Left) */}
                 <div className="flex-1 relative group/input flex flex-col">
                     <textarea
-                        className="w-full h-full p-8 bg-transparent border-none text-2xl md:text-3xl text-gray-800 dark:text-gray-100 placeholder-gray-300 dark:placeholder-gray-700 focus:ring-0 leading-relaxed font-light outline-none resize-none"
+                        className="w-full h-full p-8 bg-transparent border-none text-2xl md:text-3xl text-gray-800 dark:text-gray-100 placeholder-gray-300 dark:placeholder-gray-700 focus:ring-0 leading-relaxed font-light outline-none resize-none transition-all duration-200"
+                        style={{ fontSize: `${fontSize}px`, lineHeight: 1.5 }}
                         placeholder="Enter text to translate... (Ctrl+Enter)"
                         spellCheck={false}
                         value={inputText}
@@ -278,9 +405,12 @@ function App() {
                 <div className="flex-1 relative bg-gray-50 dark:bg-white/[0.02] group/output flex flex-col">
                     {/* Result Display */}
                     <div className="w-full h-full p-8 overflow-y-auto">
-                        <p className="text-2xl md:text-3xl text-gray-900 dark:text-white leading-relaxed font-light whitespace-pre-wrap">
+                        <p
+                            className="text-2xl md:text-3xl text-gray-900 dark:text-white leading-relaxed font-light whitespace-pre-wrap transition-all duration-200"
+                            style={{ fontSize: `${fontSize}px`, lineHeight: 1.5 }}
+                        >
                             {translatedText || (
-                                <span className="text-gray-400 dark:text-gray-500 font-display text-base">
+                                <span className="text-gray-400 dark:text-gray-500 font-display text-base" style={{ fontSize: '1rem' }}>
                                     {isTranslating ? "Translating..." : "(Translation will appear here instantly)"}
                                 </span>
                             )}
