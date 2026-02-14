@@ -144,8 +144,9 @@ async fn translate(window: tauri::Window, state: State<'_, AppState>, text: Stri
                 }
 
                 // Manual buffer management for better compatibility with Gemma 2 tokens
-                // We use token_to_piece_bytes with 0/None to allow auto-sizing
-                match model.token_to_piece_bytes(token, 0, false, None) {
+                // Manual buffer management for better compatibility with Gemma 2 tokens
+                // We use token_to_piece_bytes with a sufficiently large buffer (1024 bytes).
+                match model.token_to_piece_bytes(token, 1024, false, None) {
                     Ok(bytes) => {
                          let piece = String::from_utf8_lossy(&bytes).to_string();
                          log(format!("Generated token {}: '{}'", token.0, piece));
@@ -156,16 +157,9 @@ async fn translate(window: tauri::Window, state: State<'_, AppState>, text: Stri
                         };
                         window.emit("translation-event", payload).map_err(|e| e.to_string())?;
                     },
-                    Err(_) => {
-                        // Fallback: Try with explicit larger buffer if auto-sizing fails
-                        match model.token_to_piece_bytes(token, 0, false, std::num::NonZeroU16::new(256)) {
-                            Ok(bytes) => {
-                                let piece = String::from_utf8_lossy(&bytes).to_string();
-                                let payload = TranslationEvent { chunk: piece, is_last: false };
-                                window.emit("translation-event", payload).map_err(|e| e.to_string())?;
-                            },
-                            Err(e) => log(format!("Failed to convert token {}: {}", token.0, e)),
-                        }
+                    Err(e) => {
+                        // Log errors (e.g. Unknown Token Type) but don't crash
+                        log(format!("Failed to convert token {}: {}", token.0, e));
                     }
                 }
 
