@@ -1,0 +1,22 @@
+# Node
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Rust
+target/
+**/*.rs.bk
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Models (large files)
+models/*.gguf
+models/*.bin
+
+# IDE
+.vscode/
+.idea/
+*.swp

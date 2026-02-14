@@ -1,0 +1,9 @@
+@echo off
+set "PATH=C:\Users\takum\.cargo\bin;%PATH%"
+set "LIBCLANG_PATH=C:\Program Files\Side Effects Software\Houdini 21.0.596\python311\lib\site-packages-forced\shiboken6_generator"
+echo Killing process on port 1420...
+powershell -Command "Get-NetTCPConnection -LocalPort 1420 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force }"
+echo Killing spark.exe...
+taskkill /F /IM spark.exe /T 2>nul
+echo Starting Spark...
+npm run tauri dev

@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+@theme {
+    --color-primary: #258cf4;
+    --color-background-light: #f5f7f8;
+    --color-background-dark: #101922;
+    --font-display: Inter, sans-serif;
+    --radius-lg: 0.5rem;
+    --radius-xl: 0.75rem;
+    --radius-full: 9999px;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+    background: #101922;
+    /* background-dark */
+    color: #e5e7eb;
+    overflow: hidden;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: #333;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background-color: #555;
+}
+
+textarea:focus {
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+textarea {
+    resize: none;
+}
+
+#root {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #101922;
+}
+
+/* Base Tailwind Colors mapping for non-custom setup */
+/* primary: #258cf4 */
+/* background-light: #f5f7f8 */
+/* background-dark: #101922 */
