@@ -15,6 +15,24 @@ function App() {
     const [isTranslating, setIsTranslating] = useState(false);
     const [modelLoaded, setModelLoaded] = useState(false);
     const [modelId, setModelId] = useState("balanced"); // Default to Balanced (1.5B)
+    const [showModelMenu, setShowModelMenu] = useState(false);
+    const modelMenuRef = useRef<HTMLDivElement>(null);
+
+    // Close menu when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (modelMenuRef.current && !modelMenuRef.current.contains(event.target as Node)) {
+                setShowModelMenu(false);
+            }
+        };
+
+        if (showModelMenu) {
+            document.addEventListener("mousedown", handleClickOutside);
+        }
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, [showModelMenu]);
 
     // Optimization: Use ref for translatedText to avoid re-binding event listeners
     const translatedTextRef = useRef("");
@@ -53,32 +71,10 @@ function App() {
         return 24;
     });
 
-    const [customPrompt, setCustomPrompt] = useState(() => {
-        if (typeof window !== "undefined" && window.localStorage) {
-            return window.localStorage.getItem("customPrompt") || "";
-        }
-        return "";
-    });
-
-    const [showPromptSettings, setShowPromptSettings] = useState(false);
-
-    const PROMPT_PRESETS = [
-        { label: "Default", value: "" },
-        { label: "Natural", value: "Translate into natural, native-sounding style." },
-        { label: "Casual", value: "Translate into casual, conversational style." },
-        { label: "Formal", value: "Translate into polite, formal style." },
-        { label: "Business", value: "Translate into professional business style." },
-        { label: "Summarize", value: "Summarize the key points of the text." },
-        { label: "Explain", value: "Explain the meaning of the text in simple terms." },
-    ];
 
     useEffect(() => {
         localStorage.setItem("fontSize", fontSize.toString());
     }, [fontSize]);
-
-    useEffect(() => {
-        localStorage.setItem("customPrompt", customPrompt);
-    }, [customPrompt]);
 
     useEffect(() => {
         const handleWheel = (e: WheelEvent) => {
@@ -162,13 +158,12 @@ function App() {
             setIsTranslating(true);
             setModelLoaded(true); // Optimistic update, actual update via log
             setTranslatedText("翻訳中...");
-            console.log("Calling invoke with:", sourceLang, "→", targetLang, "Model:", modelId, "Prompt:", customPrompt);
+            console.log("Calling invoke with:", sourceLang, "→", targetLang, "Model:", modelId);
             await invoke("translate", {
                 text: inputText,
                 sourceLang,
                 targetLang,
-                modelId,
-                customPrompt // Pass custom prompt to backend
+                modelId
             });
             console.log("✅ Invoke completed successfully");
         } catch (err) {
@@ -226,58 +221,8 @@ function App() {
         <div className="w-full h-full bg-[#f5f7f8] dark:bg-[#101922] font-display flex flex-col overflow-hidden relative group transition-colors duration-300">
             {/* Top Bar */}
             <header data-tauri-drag-region className="h-16 border-b border-gray-200 dark:border-white/10 flex items-center justify-between px-6 bg-white dark:bg-black shrink-0 relative z-10">
-                {/* Drag Handler - Removed separate div, now on header */}
-
+                {/* Drag Handler & Left Side (Empty for now) */}
                 <div className="flex items-center space-x-6 z-10 relative">
-                    {/* Prompt Settings Button - Moved to start of right side controls if needed, or kept here */}
-                    <div className="relative">
-                        <button
-                            onClick={() => setShowPromptSettings(!showPromptSettings)}
-                            className={`p-2 rounded-full transition-colors flex items-center justify-center ${showPromptSettings || customPrompt ? "text-[#258cf4] bg-blue-50 dark:bg-blue-500/20" : "text-gray-400 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/10 hover:text-gray-600 dark:hover:text-white"}`}
-                            title="Translation Prompt Settings"
-                        >
-                            <span className="material-icons text-[22px]">tips_and_updates</span>
-                            {customPrompt && <span className="absolute top-1 right-1 w-2 h-2 bg-[#258cf4] rounded-full"></span>}
-                        </button>
-
-                        {/* Prompt Popover */}
-                        {showPromptSettings && (
-                            <>
-                                {/* Backdrop */}
-                                <div className="fixed inset-0 z-40" onClick={() => setShowPromptSettings(false)}></div>
-
-                                {/* Popover Content */}
-                                <div className="absolute top-full left-0 mt-3 w-[400px] bg-white dark:bg-[#1a1a1a] rounded-xl shadow-2xl border border-gray-200 dark:border-white/10 z-50 p-5 transform origin-top-left animate-in fade-in zoom-in-95 duration-100">
-                                    <div className="flex justify-between items-center mb-3">
-                                        <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wider">User Prompt</h3>
-                                        <button onClick={() => setCustomPrompt("")} className="text-xs text-red-500 hover:text-red-600 hover:underline">Reset</button>
-                                    </div>
-
-                                    <textarea
-                                        value={customPrompt}
-                                        onChange={(e) => setCustomPrompt(e.target.value)}
-                                        placeholder="Customize instructions for the AI... (e.g., 'Translate into Kansai dialect', 'Summarize this')"
-                                        className="w-full h-24 p-3 bg-gray-50 dark:bg-black/50 border border-gray-200 dark:border-white/10 rounded-lg text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:border-[#258cf4] focus:ring-1 focus:ring-[#258cf4] resize-none mb-4 placeholder-gray-400"
-                                    />
-
-                                    <div className="space-y-2">
-                                        <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Presets:</p>
-                                        <div className="flex flex-wrap gap-2">
-                                            {PROMPT_PRESETS.filter(p => p.value).map((preset) => (
-                                                <button
-                                                    key={preset.label}
-                                                    onClick={() => setCustomPrompt(preset.value)}
-                                                    className="px-3 py-1.5 text-xs rounded-full bg-gray-100 dark:bg-white/5 border border-transparent hover:border-[#258cf4] hover:text-[#258cf4] text-gray-600 dark:text-gray-300 transition-all border-gray-200 dark:border-white/10"
-                                                >
-                                                    {preset.label}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-                            </>
-                        )}
-                    </div>
                 </div>
 
                 {/* Window Controls */}
@@ -310,37 +255,94 @@ function App() {
                     </button>
 
                     {/* Model Dropdown */}
-                    <div className="relative group/model">
-                        <select
-                            value={modelId}
-                            onChange={(e) => setModelId(e.target.value)}
-                            className="appearance-none bg-transparent hover:bg-gray-100 dark:hover:bg-white/10 rounded px-2 py-1 pr-6 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white cursor-pointer focus:outline-none transition-colors"
+                    <div className="relative group/model" ref={modelMenuRef}>
+                        <button
+                            onClick={() => setShowModelMenu(!showModelMenu)}
+                            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 transition-all text-xs font-medium text-gray-700 dark:text-gray-200 border border-transparent hover:border-gray-200 dark:hover:border-white/10"
                         >
-                            <option value="light">Light (Fast)</option>
-                            <option value="balanced">Balanced</option>
-                            <option value="high">High Quality</option>
-                        </select>
-                        <span className="material-icons absolute right-1 top-1/2 -translate-y-1/2 text-[14px] text-gray-400 pointer-events-none group-hover/model:text-gray-600 dark:group-hover/model:text-white transition-colors">expand_more</span>
+                            <span className="material-icons text-[16px] text-[#258cf4]">
+                                {modelId === "light" ? "bolt" : (modelId === "balanced" ? "balance" : (modelId === "nano" ? "flash_on" : "stars"))}
+                            </span>
+                            <span>
+                                {modelId === "light" ? "Light (Fast)" : (modelId === "balanced" ? "Balanced" : (modelId === "nano" ? "Nano (Super Light)" : "High Quality"))}
+                            </span>
+                            <span className={`material-icons text-[14px] text-gray-400 transition-transform duration-200 ${showModelMenu ? "rotate-180" : ""}`}>
+                                expand_more
+                            </span>
+                        </button>
+
+                        {/* Dropdown Menu */}
+                        <div
+                            className={`absolute top-full right-0 mt-2 w-64 bg-white/90 dark:bg-[#1a1a1a]/90 backdrop-blur-xl border border-gray-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden transition-all duration-200 origin-top-right z-50 ${showModelMenu ? "opacity-100 scale-100 translate-y-0" : "opacity-0 scale-95 -translate-y-2 pointer-events-none"}`}
+                        >
+                            <div className="p-1 flex flex-col gap-1">
+                                {[
+                                    { id: "nano", icon: "flash_on", label: "Nano Mode", desc: "Super lightweight (~200MB). Minimal resource usage." },
+                                    { id: "light", icon: "bolt", label: "Light Mode", desc: "Fastest response, standard memory usage." },
+                                    { id: "balanced", icon: "balance", label: "Balanced Mode", desc: "Recommended balance of speed & quality." },
+                                    { id: "high", icon: "stars", label: "High Quality", desc: "Maximum accuracy, slower generation." }
+                                ].map((option) => (
+                                    <button
+                                        key={option.id}
+                                        onClick={() => {
+                                            setModelId(option.id);
+                                            setShowModelMenu(false);
+                                        }}
+                                        className={`w-full text-left px-3 py-2.5 rounded-lg flex items-start gap-3 transition-colors ${modelId === option.id
+                                            ? "bg-[#258cf4]/10 dark:bg-[#258cf4]/20"
+                                            : "hover:bg-gray-100 dark:hover:bg-white/5"
+                                            }`}
+                                    >
+                                        <span className={`material-icons text-[18px] mt-0.5 ${modelId === option.id ? "text-[#258cf4]" : "text-gray-400 dark:text-gray-500"}`}>
+                                            {option.icon}
+                                        </span>
+                                        <div>
+                                            <div className={`text-sm font-medium ${modelId === option.id ? "text-[#258cf4]" : "text-gray-700 dark:text-gray-200"}`}>
+                                                {option.label}
+                                            </div>
+                                            <div className="text-[10px] text-gray-400 dark:text-gray-500 leading-tight mt-0.5">
+                                                {option.desc}
+                                            </div>
+                                        </div>
+                                        {modelId === option.id && (
+                                            <span className="material-icons text-[16px] text-[#258cf4] ml-auto mt-1">check</span>
+                                        )}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
                     </div>
 
                     <div className="w-px h-4 bg-gray-300 dark:bg-white/20"></div>
 
-                    <div className="flex gap-2 opacity-50 hover:opacity-100 transition-opacity duration-200">
-                        <div
+                    <div className="flex items-center gap-1 p-1 rounded-full bg-gray-100/50 dark:bg-white/5 border border-gray-200/50 dark:border-white/5 hover:border-gray-300/80 dark:hover:border-white/10 transition-all duration-300">
+                        <button
                             onClick={() => appWindow.minimize()}
-                            className="w-3 h-3 rounded-full bg-gray-300 dark:bg-white/20 hover:bg-gray-400 dark:hover:bg-white/40 cursor-pointer transition-colors"
+                            className="w-8 h-8 rounded-full hover:bg-black/5 dark:hover:bg-white/5 flex items-center justify-center group/min transition-all"
                             title="Minimize"
-                        ></div>
-                        <div
+                        >
+                            <div className="w-3 h-3 rounded-full bg-black/10 dark:bg-white/20 group-hover/min:bg-black/20 dark:group-hover/min:bg-white/40 flex items-center justify-center transition-all">
+                                <div className="w-1.5 h-[1.5px] bg-black/40 dark:bg-white/60 opacity-0 group-hover/min:opacity-100 transition-opacity"></div>
+                            </div>
+                        </button>
+                        <button
                             onClick={() => appWindow.toggleMaximize()}
-                            className="w-3 h-3 rounded-full bg-gray-300 dark:bg-white/20 hover:bg-gray-400 dark:hover:bg-white/40 cursor-pointer transition-colors"
+                            className="w-8 h-8 rounded-full hover:bg-black/5 dark:hover:bg-white/5 flex items-center justify-center group/max transition-all"
                             title="Maximize"
-                        ></div>
-                        <div
+                        >
+                            <div className="w-3 h-3 rounded-full bg-black/10 dark:bg-white/20 group-hover/max:bg-black/20 dark:group-hover/max:bg-white/40 flex items-center justify-center transition-all">
+                                <div className="w-1.5 h-1.5 border-[1.5px] border-black/40 dark:border-white/60 opacity-0 group-hover/max:opacity-100 transition-opacity"></div>
+                            </div>
+                        </button>
+                        <button
                             onClick={() => appWindow.close()}
-                            className="w-3 h-3 rounded-full bg-[#258cf4]/80 hover:bg-[#e81123] cursor-pointer transition-colors"
+                            className="w-8 h-8 rounded-full hover:bg-red-500/10 flex items-center justify-center group/close transition-all"
                             title="Close"
-                        ></div>
+                        >
+                            <div className="w-3 h-3 rounded-full bg-black/10 dark:bg-white/20 group-hover/close:bg-red-500 flex items-center justify-center transition-all">
+                                <span className="material-icons text-[10px] text-white opacity-0 group-hover/close:opacity-100 transition-opacity">close</span>
+                            </div>
+                        </button>
                     </div>
                 </div>
             </header>
@@ -381,13 +383,13 @@ function App() {
                 {/* Vertical Divider & Swap Button Container */}
                 <div className="relative w-px md:w-auto flex flex-col justify-center items-center z-20">
                     <div className="absolute inset-0 flex justify-center">
-                        <div className="w-full h-px md:w-px md:h-full bg-gray-200 dark:bg-white/10"></div>
+                        <div className="w-full h-px md:w-px md:h-full bg-gray-100 dark:bg-white/5 transition-colors duration-300"></div>
                     </div>
 
                     {/* Centered Swap Button */}
                     <button
                         onClick={handleSwapLanguages}
-                        className="relative z-10 w-10 h-10 flex items-center justify-center rounded-full bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md text-gray-400 dark:text-gray-500 hover:text-[#258cf4] dark:hover:text-[#258cf4] hover:border-[#258cf4] dark:hover:border-[#258cf4] transition-all active:scale-95 group/swap"
+                        className="relative z-10 w-10 h-10 flex items-center justify-center rounded-full bg-white dark:bg-[#1a1a1a] text-gray-300 dark:text-gray-600 hover:text-[#258cf4] dark:hover:text-[#258cf4] hover:bg-gray-50 dark:hover:bg-white/5 transition-all active:scale-95 group/swap"
                         title="Swap Languages"
                     >
                         <span
@@ -400,9 +402,9 @@ function App() {
                 </div>
 
                 {/* Output Area (Right) */}
-                <div className="flex-1 relative bg-gray-50 dark:bg-white/[0.02] group/output flex flex-col">
+                <div className="flex-1 relative group/output flex flex-col">
                     {/* Language Header */}
-                    <div className="h-12 border-b border-gray-200 dark:border-white/5 flex items-center justify-center px-6 bg-gray-50/80 dark:bg-white/[0.02] shrink-0">
+                    <div className="h-12 border-b border-gray-100 dark:border-white/5 flex items-center justify-center px-6 bg-white/50 dark:bg-white/[0.02] shrink-0">
                         <button
                             onClick={() => setTargetLang(targetLang === "Japanese" ? "English" : "Japanese")}
                             className="text-base font-medium text-gray-700 dark:text-gray-300 hover:text-[#258cf4] dark:hover:text-[#258cf4] transition-colors flex items-center gap-1"
@@ -446,8 +448,6 @@ function App() {
                         <button
                             onClick={() => {
                                 navigator.clipboard.writeText(translatedText);
-                                // Trigger animation/state logic could be added here if needed, 
-                                // but the active state handles the feedback well for now.
                             }}
                             aria-label="Copy Translation"
                             className="w-12 h-12 flex items-center justify-center rounded-full bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-[#258cf4] dark:hover:bg-[#258cf4] hover:text-white dark:hover:text-white transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] shadow-lg hover:shadow-blue-500/30 hover:-translate-y-1 active:scale-90 group/copy relative overflow-hidden"
@@ -462,7 +462,7 @@ function App() {
             {/* Status Bar (Very Minimal) */}
             <footer className="h-8 bg-white dark:bg-black border-t border-gray-200 dark:border-white/10 flex items-center justify-between px-4 text-[10px] uppercase tracking-widest text-gray-400 dark:text-gray-600 shrink-0">
                 <span>{isTranslating ? "Processing..." : (modelLoaded ? "Model: Ready" : "Model: Sleeping (Low Mem)")}</span>
-                <span>Spark v1.0 • {modelId === "balanced" ? "Balanced Mode" : (modelId === "light" ? "Light Mode" : "High Quality Mode")}</span>
+                <span>Spark v1.0 • {modelId === "balanced" ? "Balanced Mode" : (modelId === "light" ? "Light Mode" : (modelId === "nano" ? "Nano Mode" : "High Quality Mode"))}</span>
             </footer>
         </div>
     );

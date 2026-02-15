@@ -3,6 +3,15 @@
     font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
 }
 
+/* Smooth Theme Transition */
+*,
+*::before,
+*::after {
+    transition-property: background-color, border-color, color, fill, stroke, box-shadow, backdrop-filter, -webkit-backdrop-filter;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 400ms;
+}
+
 body {
     margin: 0;
     padding: 0;
