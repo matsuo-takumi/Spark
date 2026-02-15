@@ -229,37 +229,7 @@ function App() {
                 {/* Drag Handler - Removed separate div, now on header */}
 
                 <div className="flex items-center space-x-6 z-10 relative">
-                    {/* Source Language */}
-                    <button
-                        onClick={() => setSourceLang(sourceLang === "English" ? "Japanese" : "English")}
-                        className="text-lg font-medium text-gray-900 dark:text-white hover:text-[#258cf4] dark:hover:text-[#258cf4] transition-colors focus:outline-none"
-                    >
-                        {sourceLang}
-                    </button>
-                    {/* Swap Button */}
-                    <button
-                        onClick={handleSwapLanguages}
-                        className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 text-gray-400 dark:text-gray-500 hover:text-[#258cf4] dark:hover:text-[#258cf4] transition-all active:scale-95 group/swap"
-                    >
-                        <span
-                            className="material-icons text-xl transition-transform duration-300 transform group-hover/swap:scale-110"
-                            style={{ transform: `rotate(${swapRotation}deg)` }}
-                        >
-                            swap_horiz
-                        </span>
-                    </button>
-                    {/* Target Language */}
-                    <button
-                        onClick={() => setTargetLang(targetLang === "Japanese" ? "English" : "Japanese")}
-                        className="text-lg font-medium text-gray-900 dark:text-white hover:text-[#258cf4] dark:hover:text-[#258cf4] transition-colors focus:outline-none"
-                    >
-                        {targetLang}
-                    </button>
-
-                    {/* Divider using CSS border or explicit div */}
-                    <div className="h-6 w-px bg-gray-300 dark:bg-white/20 mx-2"></div>
-
-                    {/* Prompt Settings Button */}
+                    {/* Prompt Settings Button - Moved to start of right side controls if needed, or kept here */}
                     <div className="relative">
                         <button
                             onClick={() => setShowPromptSettings(!showPromptSettings)}
@@ -379,8 +349,18 @@ function App() {
             <main className="flex-1 flex flex-col md:flex-row relative overflow-hidden">
                 {/* Input Area (Left) */}
                 <div className="flex-1 relative group/input flex flex-col">
+                    {/* Language Header */}
+                    <div className="h-12 border-b border-gray-100 dark:border-white/5 flex items-center justify-center px-6 bg-white/50 dark:bg-white/[0.02] shrink-0">
+                        <button
+                            onClick={() => setSourceLang(sourceLang === "English" ? "Japanese" : "English")}
+                            className="text-base font-medium text-gray-700 dark:text-gray-300 hover:text-[#258cf4] dark:hover:text-[#258cf4] transition-colors flex items-center gap-1"
+                        >
+                            {sourceLang}
+                            <span className="material-icons text-[16px] opacity-50">expand_more</span>
+                        </button>
+                    </div>
                     <textarea
-                        className="w-full h-full p-8 bg-transparent border-none text-2xl md:text-3xl text-gray-800 dark:text-gray-100 placeholder-gray-300 dark:placeholder-gray-700 focus:ring-0 leading-relaxed font-light outline-none resize-none transition-all duration-200"
+                        className="w-full flex-1 p-8 bg-transparent border-none text-2xl md:text-3xl text-gray-800 dark:text-gray-100 placeholder-gray-300 dark:placeholder-gray-700 focus:ring-0 leading-relaxed font-light outline-none resize-none transition-all duration-200"
                         style={{ fontSize: `${fontSize}px`, lineHeight: 1.5 }}
                         placeholder="Enter text to translate... (Ctrl+Enter)"
                         spellCheck={false}
@@ -398,13 +378,41 @@ function App() {
                     </div>
                 </div>
 
-                {/* Vertical Divider */}
-                <div className="w-full h-px md:w-px md:h-full bg-gray-200 dark:bg-white/10 shrink-0"></div>
+                {/* Vertical Divider & Swap Button Container */}
+                <div className="relative w-px md:w-auto flex flex-col justify-center items-center z-20">
+                    <div className="absolute inset-0 flex justify-center">
+                        <div className="w-full h-px md:w-px md:h-full bg-gray-200 dark:bg-white/10"></div>
+                    </div>
+
+                    {/* Centered Swap Button */}
+                    <button
+                        onClick={handleSwapLanguages}
+                        className="relative z-10 w-10 h-10 flex items-center justify-center rounded-full bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md text-gray-400 dark:text-gray-500 hover:text-[#258cf4] dark:hover:text-[#258cf4] hover:border-[#258cf4] dark:hover:border-[#258cf4] transition-all active:scale-95 group/swap"
+                        title="Swap Languages"
+                    >
+                        <span
+                            className="material-icons text-xl transition-transform duration-300 transform group-hover/swap:scale-110"
+                            style={{ transform: `rotate(${swapRotation}deg)` }}
+                        >
+                            swap_horiz
+                        </span>
+                    </button>
+                </div>
 
                 {/* Output Area (Right) */}
                 <div className="flex-1 relative bg-gray-50 dark:bg-white/[0.02] group/output flex flex-col">
+                    {/* Language Header */}
+                    <div className="h-12 border-b border-gray-200 dark:border-white/5 flex items-center justify-center px-6 bg-gray-50/80 dark:bg-white/[0.02] shrink-0">
+                        <button
+                            onClick={() => setTargetLang(targetLang === "Japanese" ? "English" : "Japanese")}
+                            className="text-base font-medium text-gray-700 dark:text-gray-300 hover:text-[#258cf4] dark:hover:text-[#258cf4] transition-colors flex items-center gap-1"
+                        >
+                            {targetLang}
+                            <span className="material-icons text-[16px] opacity-50">expand_more</span>
+                        </button>
+                    </div>
                     {/* Result Display */}
-                    <div className="w-full h-full p-8 overflow-y-auto">
+                    <div className="w-full flex-1 p-8 overflow-y-auto">
                         <p
                             className="text-2xl md:text-3xl text-gray-900 dark:text-white leading-relaxed font-light whitespace-pre-wrap transition-all duration-200"
                             style={{ fontSize: `${fontSize}px`, lineHeight: 1.5 }}
