@@ -3,7 +3,8 @@
     "description": "Default capabilities for the app",
     "local": true,
     "windows": [
-        "main"
+        "main",
+        "popup"
     ],
     "permissions": [
         "core:webview:allow-internal-toggle-devtools",
@@ -11,7 +12,9 @@
         "core:window:allow-maximize",
         "core:window:allow-toggle-maximize",
         "core:window:allow-close",
+        "core:window:allow-hide",
         "core:window:allow-start-dragging",
+        "clipboard-manager:default",
         "core:default"
     ]
 }

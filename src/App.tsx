@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { listen, emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./App.css";
 
@@ -57,6 +57,7 @@ function App() {
             root.classList.remove("dark");
         }
         localStorage.setItem("theme", theme);
+        emit("theme-changed", theme);
     }, [theme]);
 
     const toggleTheme = () => {
@@ -198,6 +199,14 @@ function App() {
         setTargetLang(prev => prev === "Japanese" ? "English" : "Japanese");
     }, []);
 
+    const cycleMode = () => {
+        const modes = ["nano", "light", "balanced", "high"];
+        const currentIndex = modes.indexOf(modelId);
+        const nextIndex = (currentIndex + 1) % modes.length;
+        const nextMode = modes[nextIndex];
+        setModelId(nextMode);
+    };
+
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.ctrlKey && e.key === "Tab") {
@@ -211,11 +220,18 @@ function App() {
                 // Optional: We could trigger a toast notification here if we had one
                 console.log("Copied to clipboard via shortcut");
             }
+            // Ctrl + M to Cycle Modes
+            if (e.ctrlKey && (e.key === 'm' || e.key === 'M')) {
+                e.preventDefault();
+                cycleMode();
+            }
         };
 
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [handleSwapLanguages]); // No need for translatedText dependency now
+    }, [handleSwapLanguages, modelId]); // Added modelId because cycleMode depends on it, allow it to re-bind?
+    // Actually handleKeyDown is redefined on every render if we don't wrap it or deps change.
+    // To avoid stale state, we need modelId in dep array or use functional update.
 
     return (
         <div className="w-full h-full bg-[#f5f7f8] dark:bg-[#101922] font-display flex flex-col overflow-hidden relative group transition-colors duration-300">

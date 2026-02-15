@@ -1,7 +1,6 @@
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::path::Path;
-use std::num::{NonZeroU32, NonZeroU16};
+use std::num::NonZeroU32;
 use tauri::{Manager, State, Emitter, Window};
 use llama_cpp_2::model::LlamaModel;
 use llama_cpp_2::llama_backend::LlamaBackend;
@@ -9,7 +8,12 @@ use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::context::params::LlamaContextParams;
 use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::token::data_array::LlamaTokenDataArray;
+
 use llama_cpp_2::sampling::LlamaSampler;
+use rdev::{listen, Event, EventType, Key};
+use std::thread;
+use std::time::{Duration, Instant};
+use tauri_plugin_clipboard_manager::ClipboardExt;
 // ... (omitting strict line checks for imports, assuming replacing top block works or I should target specific lines)
 
 // I will target specific blocks to be safe.
@@ -39,6 +43,19 @@ async fn cancel_translation(window: tauri::Window, state: State<'_, AppState>) -
     state.is_cancelled.store(true, Ordering::Relaxed);
     window.emit("debug-log", "Cancellation requested".to_string()).unwrap_or(());
     Ok(())
+}
+
+#[tauri::command]
+async fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
+#[tauri::command]
+async fn open_main_window(app: tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
 }
 
 #[tauri::command]
@@ -489,6 +506,94 @@ async fn unload_model(window: tauri::Window, state: State<'_, AppState>) -> Resu
     }
 }
 
+fn start_key_listener(app: tauri::AppHandle) {
+    thread::spawn(move || {
+        let mut last_c_press = Instant::now();
+        // Track left/right separately to avoid sticky issues on release
+        let mut left_ctrl = false;
+        let mut right_ctrl = false;
+        let mut last_ctrl_activity = Instant::now(); // Timeout for sticky keys
+        
+        let mut last_mouse_x = 0.0;
+        let mut last_mouse_y = 0.0;
+
+        let callback = move |event: Event| {
+            match event.event_type {
+                EventType::MouseMove { x, y } => {
+                    last_mouse_x = x;
+                    last_mouse_y = y;
+                }
+                EventType::KeyPress(Key::ControlLeft) => {
+                    left_ctrl = true;
+                    last_ctrl_activity = Instant::now();
+                }
+                EventType::KeyPress(Key::ControlRight) => {
+                    right_ctrl = true;
+                    last_ctrl_activity = Instant::now();
+                }
+                EventType::KeyRelease(Key::ControlLeft) => {
+                    left_ctrl = false;
+                    last_ctrl_activity = Instant::now();
+                }
+                EventType::KeyRelease(Key::ControlRight) => {
+                    right_ctrl = false;
+                    last_ctrl_activity = Instant::now();
+                }
+                EventType::KeyPress(Key::KeyC) => {
+                    // Check if either Ctrl is held AND it was recent (prevent stuck keys)
+                    let is_ctrl = (left_ctrl || right_ctrl) && last_ctrl_activity.elapsed() < Duration::from_secs(10);
+                    
+                    if is_ctrl {
+                        let now = Instant::now();
+                        if now.duration_since(last_c_press) < Duration::from_millis(500) {
+                            // Double tap detected!
+                            let app_handle = app.clone();
+                            thread::spawn(move || {
+                                // Give some time for OS to copy to clipboard
+                                thread::sleep(Duration::from_millis(100));
+                                
+                                match app_handle.clipboard().read_text() {
+                                    Ok(text) => {
+                                        if let Some(window) = app_handle.get_webview_window("popup") {
+                                            println!("Double Ctrl+C detected. Showing popup with text: {}", text);
+                                            // Set position above the mouse cursor
+                                            // Window size is 400x300.
+                                            // Center X: mouse_x - 200
+                                            // Above Y: mouse_y - 320 (give 20px padding)
+                                            let target_x = (last_mouse_x as i32) - 200;
+                                            let target_y = (last_mouse_y as i32) - 320;
+                                            
+                                            // Allow negative Y (some multi-monitors have negative coords), 
+                                            // but maybe clamp to 0 if single monitor? 
+                                            // For now trust the coords.
+                                            
+                                            let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+                                                x: target_x,
+                                                y: target_y,
+                                            }));
+
+                                            let _ = window.emit("popup-data", text);
+                                            let _ = window.show();
+                                            let _ = window.set_focus();
+                                        }
+                                    }
+                                    Err(e) => eprintln!("Failed to read clipboard: {}", e),
+                                }
+                            });
+                        }
+                        last_c_press = now;
+                    }
+                }
+                _ => {}
+            }
+        };
+
+        if let Err(error) = listen(callback) {
+            eprintln!("Error: {:?}", error);
+        }
+    });
+}
+
 fn main() {
     eprintln!("Spark backend starting...");
     let backend = LlamaBackend::init().unwrap();
@@ -502,14 +607,34 @@ fn main() {
     };
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(state)
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
                 window.set_title("Spark").ok();
             }
+            start_key_listener(app.handle().clone());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![translate, unload_model, cancel_translation])
+        .invoke_handler(tauri::generate_handler![translate, unload_model, cancel_translation, quit_app, open_main_window])
+        .on_window_event(|window, event| {
+            match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    // Hide main window instead of closing, to keep app resident
+                    if window.label() == "main" {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
+                    // For popup, we let it "close" (which might just be hide or destroy, but usually hide is better)
+                    // If popup is closed, we probably just want to hide it too.
+                    if window.label() == "popup" {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
+                }
+                _ => {}
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -24,7 +24,20 @@
                 "resizable": true,
                 "fullscreen": false,
                 "transparent": false,
-                "decorations": false
+                "decorations": false,
+                "label": "main"
+            },
+            {
+                "label": "popup",
+                "title": "Spark Popup",
+                "width": 400,
+                "height": 300,
+                "decorations": false,
+                "transparent": true,
+                "alwaysOnTop": true,
+                "skipTaskbar": true,
+                "visible": false,
+                "url": "/popup"
             }
         ]
     },
