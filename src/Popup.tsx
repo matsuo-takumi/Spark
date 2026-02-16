@@ -48,7 +48,7 @@ export default function Popup() {
         });
 
         // Listen for translation chunks (streaming)
-        const unlistenTranslationPromise = listen<{ chunk: string; is_last: boolean }>("translation-event", (event) => {
+        const unlistenTranslationPromise = listen<{ chunk: string; is_last: boolean }>("translation-event-popup", (event) => {
             if (event.payload.chunk) {
                 setTranslation((prev) => prev + event.payload.chunk);
             }

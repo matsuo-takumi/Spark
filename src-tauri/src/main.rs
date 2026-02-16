@@ -111,17 +111,35 @@ async fn translate(
                 _ => "qwen2.5-0.5b-instruct-q4_k_m.gguf", 
             };
 
-            let potential_paths = vec![
+            let mut potential_paths = Vec::new();
+            
+            // Priority 1: Check SPARK_MODELS_PATH environment variable
+            if let Ok(env_path) = std::env::var("SPARK_MODELS_PATH") {
+                potential_paths.push(std::path::PathBuf::from(format!("{}/{}", env_path, model_filename)));
+            }
+            
+            // Priority 2-5: Fallback paths
+            potential_paths.extend(vec![
                 std::path::PathBuf::from(format!("x:/Models/{}", model_filename)),
                 std::path::PathBuf::from(format!("models/{}", model_filename)),
                 std::path::PathBuf::from(format!("../models/{}", model_filename)),
                 std::path::PathBuf::from(format!("C:/models/{}", model_filename)),
-            ];
+            ]);
 
             let model_path = potential_paths
                 .iter()
                 .find(|p| p.exists())
-                .ok_or(format!("Model file '{}' not found in expected locations", model_filename))?;
+                .ok_or_else(|| {
+                    let searched = potential_paths.iter()
+                        .map(|p| format!("  - {:?}", p))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    format!(
+                        "Model file '{}' not found. Searched locations:\n{}\n\nTip: Set SPARK_MODELS_PATH environment variable to specify custom model directory.",
+                        model_filename,
+                        searched
+                    )
+                })?;
 
             log(format!("Loading model from {:?}", model_path));
             let model_params = LlamaModelParams::default();
@@ -284,7 +302,8 @@ async fn translate(
                                         chunk: output_buffer.clone(),
                                         is_last: false,
                                     };
-                                    window.emit("translation-event", payload).map_err(|e: tauri::Error| e.to_string())?;
+                                    let event_name = format!("translation-event-{}", window.label());
+                                    window.emit(&event_name, payload).map_err(|e: tauri::Error| e.to_string())?;
                                     output_buffer.clear();
                                  } else {
                                      // Slow Path: Buffer contains '<', potential tag.
@@ -304,7 +323,8 @@ async fn translate(
                                                     chunk: clean_chunk,
                                                     is_last: false,
                                                 };
-                                                window.emit("translation-event", payload).map_err(|e: tauri::Error| e.to_string())?;
+                                                let event_name = format!("translation-event-{}", window.label());
+                                                window.emit(&event_name, payload).map_err(|e: tauri::Error| e.to_string())?;
                                              }
                                          }
                                          log("Stop tag detected. Halting generation.".to_string());
@@ -320,7 +340,8 @@ async fn translate(
                                                 chunk,
                                                 is_last: false,
                                             };
-                                            window.emit("translation-event", payload).map_err(|e: tauri::Error| e.to_string())?;
+                                            let event_name = format!("translation-event-{}", window.label());
+                                            window.emit(&event_name, payload).map_err(|e: tauri::Error| e.to_string())?;
                                          }
                                          // Remove the start tag from buffer
                                          let next_start = idx + START_TAG.len();
@@ -356,7 +377,8 @@ async fn translate(
                                                         chunk: clean_chunk,
                                                         is_last: false,
                                                     };
-                                                    window.emit("translation-event", payload).map_err(|e: tauri::Error| e.to_string())?;
+                                                    let event_name = format!("translation-event-{}", window.label());
+                                                    window.emit(&event_name, payload).map_err(|e: tauri::Error| e.to_string())?;
                                                  }
                                                  output_buffer = output_buffer[last_chevron..].to_string();
                                              }
@@ -374,7 +396,8 @@ async fn translate(
                                                     chunk: clean_chunk,
                                                     is_last: false,
                                                 };
-                                                window.emit("translation-event", payload).map_err(|e: tauri::Error| e.to_string())?;
+                                                let event_name = format!("translation-event-{}", window.label());
+                                                window.emit(&event_name, payload).map_err(|e: tauri::Error| e.to_string())?;
                                              }
                                              output_buffer.clear();
                                          }
@@ -384,7 +407,8 @@ async fn translate(
                                             chunk: output_buffer.clone(),
                                             is_last: false,
                                         };
-                                        window.emit("translation-event", payload).map_err(|e: tauri::Error| e.to_string())?;
+                                        let event_name = format!("translation-event-{}", window.label());
+                                        window.emit(&event_name, payload).map_err(|e: tauri::Error| e.to_string())?;
                                         output_buffer.clear();
                                      }
                                  }
@@ -407,7 +431,8 @@ async fn translate(
                                             chunk: output_buffer.clone(),
                                             is_last: false,
                                         };
-                                        window.emit("translation-event", payload).map_err(|e: tauri::Error| e.to_string())?;
+                                        let event_name = format!("translation-event-{}", window.label());
+                                        window.emit(&event_name, payload).map_err(|e: tauri::Error| e.to_string())?;
                                         output_buffer.clear();
                                      } else {
                                         // Slow path logic - copy/paste or refactor?
@@ -459,7 +484,8 @@ async fn translate(
                         chunk: clean_chunk,
                         is_last: false,
                     };
-                    window.emit("translation-event", payload).map_err(|e: tauri::Error| e.to_string())?;
+                    let event_name = format!("translation-event-{}", window.label());
+                    window.emit(&event_name, payload).map_err(|e: tauri::Error| e.to_string())?;
                  }
             }
             
@@ -473,7 +499,8 @@ async fn translate(
                     chunk: "\n".to_string(),
                     is_last: false,
                 };
-                window.emit("translation-event", payload).map_err(|e: tauri::Error| e.to_string())?;
+                let event_name = format!("translation-event-{}", window.label());
+                window.emit(&event_name, payload).map_err(|e: tauri::Error| e.to_string())?;
             }
         }
         
@@ -482,7 +509,8 @@ async fn translate(
             chunk: "".to_string(),
             is_last: true,
         };
-        window.emit("translation-event", payload).map_err(|e: tauri::Error| e.to_string())?;
+        let event_name = format!("translation-event-{}", window.label());
+        window.emit(&event_name, payload).map_err(|e: tauri::Error| e.to_string())?;
         
         log("Translation complete/cancelled".to_string());
         Ok(())

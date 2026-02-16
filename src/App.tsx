@@ -95,7 +95,7 @@ function App() {
 
     useEffect(() => {
         // Set up event listener for streaming translations
-        const unlistenPromise = listen<{ chunk: string; is_last: boolean }>("translation-event", (event) => {
+        const unlistenPromise = listen<{ chunk: string; is_last: boolean }>("translation-event-main", (event) => {
             console.log("📥 Event received:", event.payload.chunk.substring(0, 50), "is_last:", event.payload.is_last);
 
             // Only update if chunk is not empty
