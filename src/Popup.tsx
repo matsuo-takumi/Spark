@@ -16,8 +16,17 @@ export default function Popup() {
     const [fontSize, setFontSize] = useState(16); // Default font size
     const [sourceLang, setSourceLang] = useState("English");
     const [targetLang, setTargetLang] = useState("Japanese");
-    const [modelId, setModelId] = useState("balanced"); // Default to balanced
+    const [modelId, setModelId] = useState(() => {
+        if (typeof window !== "undefined" && window.localStorage) {
+            const saved = window.localStorage.getItem("defaultModel");
+            if (saved && ["nano", "light", "balanced", "high"].includes(saved)) {
+                return saved;
+            }
+        }
+        return "balanced";
+    });
     const [theme, setTheme] = useState("dark"); // Default to dark, will update from localstorage
+    const [showModelMenu, setShowModelMenu] = useState(false);
 
     // Initial setup & Theme
     useEffect(() => {
@@ -81,12 +90,17 @@ export default function Popup() {
         };
         window.addEventListener("keydown", handleKeyDown);
 
-        // Close on blur (optional, maybe aggressive initially)
-        /*
-        const unlistenBlur = appWindow.listen("tauri://blur", () => {
-             appWindow.hide();
-        });
-        */
+        // Close menus when clicking outside
+        const handleClickOutside = (event: MouseEvent) => {
+            // For simplicity in popup, we can just close if clicking away from specific areas, 
+            // but let's just close the menu if clicking anywhere else in the window really.
+            // Actually, we need to check if click is inside the menu.
+            const target = event.target as HTMLElement;
+            if (!target.closest('.group\\/model-menu')) {
+                setShowModelMenu(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
 
         return () => {
             unlistenPromise.then((unlisten) => unlisten());
@@ -94,6 +108,7 @@ export default function Popup() {
             unlistenDebugPromise.then((unlisten) => unlisten());
             unlistenThemePromise.then((unlisten) => unlisten());
             window.removeEventListener("keydown", handleKeyDown);
+            document.removeEventListener("mousedown", handleClickOutside);
         };
     }, [sourceLang, targetLang, modelId]); // Re-bind if langs/model change? text is in closure... actually handleKeyDown needs refs or deps.
 
@@ -110,6 +125,18 @@ export default function Popup() {
             if (e.ctrlKey && (e.key === "m" || e.key === "M")) {
                 e.preventDefault();
                 cycleMode();
+            }
+            if (e.ctrlKey && (e.key === "q" || e.key === "Q")) {
+                e.preventDefault();
+                appWindow.hide();
+            }
+            if (e.ctrlKey && e.key === "Enter") {
+                e.preventDefault();
+                if (text) {
+                    setTranslation("");
+                    setLoading(true);
+                    translateText(text, sourceLang, targetLang, modelId);
+                }
             }
         };
         window.addEventListener("keydown", handleShortcut);
@@ -134,11 +161,6 @@ export default function Popup() {
 
     async function translateText(sourceText: string, src: string, tgt: string, model: string = modelId) {
         if (!sourceText.trim()) return;
-
-        // Use saved settings or defaults? 
-        // For now, let's hardcode English <-> Japanese auto-detection or just default to Japanese target?
-        // Ideally we read the same settings as main app, but they are in localStorage.
-
 
         try {
             await invoke("translate", {
@@ -194,9 +216,9 @@ export default function Popup() {
             data-tauri-drag-region
         >
             {/* Header / Actions */}
-            <div className="flex justify-between items-center w-full mb-4 shrink-0" data-tauri-drag-region>
+            <div className="flex justify-between items-center w-full mb-4 shrink-0 z-50">
                 {/* App Menu */}
-                <div className="relative group/app-menu mr-4 z-50">
+                <div className="relative group/app-menu z-50">
                     <button className="opacity-50 hover:opacity-100 p-1 rounded hover:bg-white/10">
                         <span className="material-icons text-lg">menu</span>
                     </button>
@@ -217,12 +239,49 @@ export default function Popup() {
                     <span className="font-semibold">{targetLang === "English" ? "EN" : "JP"}</span>
                 </div>
 
-                {/* Mode Indicator */}
-                <div onClick={cycleMode} className="flex gap-1 items-center text-[10px] uppercase tracking-wider opacity-50 hover:opacity-100 transition-opacity cursor-pointer mx-auto">
-                    <span className="material-icons text-[12px]">
-                        {modelId === "light" ? "bolt" : (modelId === "balanced" ? "balance" : (modelId === "nano" ? "flash_on" : "stars"))}
-                    </span>
-                    <span>{modelId}</span>
+                {/* Mode Indicator & Dropdown */}
+                <div className="relative group/model-menu z-50">
+                    <div
+                        onClick={() => setShowModelMenu(!showModelMenu)}
+                        className="flex gap-1 items-center text-[10px] uppercase tracking-wider opacity-50 hover:opacity-100 transition-opacity cursor-pointer mx-auto px-2 py-1 rounded hover:bg-white/5"
+                    >
+                        <span className="material-icons text-[12px]">
+                            {modelId === "light" ? "bolt" : (modelId === "balanced" ? "balance" : (modelId === "nano" ? "flash_on" : "stars"))}
+                        </span>
+                        <span>{modelId}</span>
+                        <span className={`material-icons text-[10px] transition-transform duration-200 ${showModelMenu ? "rotate-180" : ""}`}>expand_more</span>
+                    </div>
+
+                    {/* Dropdown Menu */}
+                    {showModelMenu && (
+                        <div className="absolute top-full right-0 mt-2 w-48 bg-[#1a1a1a] border border-white/20 rounded-lg shadow-xl overflow-hidden backdrop-blur-md flex flex-col z-[100]">
+                            {[
+                                { id: "nano", icon: "flash_on", label: "Nano" },
+                                { id: "light", icon: "bolt", label: "Light" },
+                                { id: "balanced", icon: "balance", label: "Balanced" },
+                                { id: "high", icon: "stars", label: "High" }
+                            ].map((option) => (
+                                <button
+                                    key={option.id}
+                                    onClick={() => {
+                                        setModelId(option.id);
+                                        setShowModelMenu(false);
+                                        // Auto re-translate on change?
+                                        if (text) {
+                                            setTranslation("");
+                                            setLoading(true);
+                                            translateText(text, sourceLang, targetLang, option.id);
+                                        }
+                                    }}
+                                    className={`w-full text-left px-4 py-2 hover:bg-white/10 flex items-center gap-2 text-xs text-gray-200 ${modelId === option.id ? "bg-white/5 text-blue-400" : ""}`}
+                                >
+                                    <span className="material-icons text-sm">{option.icon}</span>
+                                    <span>{option.label}</span>
+                                    {modelId === option.id && <span className="material-icons text-xs ml-auto">check</span>}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 <button onClick={() => appWindow.hide()} className="opacity-50 hover:opacity-100 transition-opacity p-1 rounded-md hover:bg-white/10">
@@ -230,13 +289,9 @@ export default function Popup() {
                 </button>
             </div>
 
-            {/* Source */}
-            <div className={`w-full text-sm mb-4 line-clamp-3 shrink-0 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
-                {text || "Waiting for selection..."}
-            </div>
+            {/* Source Text Removed as per request */}
 
-            {/* Divider */}
-            <div className={`w-full h-px mb-4 shrink-0 ${theme === 'dark' ? 'bg-white/10' : 'bg-black/5'}`}></div>
+            {/* Divider Removed */}
 
             {/* Translation */}
             <div className="w-full flex-1 overflow-y-auto mb-4">

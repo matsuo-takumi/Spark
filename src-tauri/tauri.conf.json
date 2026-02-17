@@ -25,6 +25,7 @@
                 "fullscreen": false,
                 "transparent": false,
                 "decorations": false,
+                "visible": false,
                 "label": "main"
             },
             {

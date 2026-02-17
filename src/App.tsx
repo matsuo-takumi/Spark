@@ -14,7 +14,15 @@ function App() {
     const [targetLang, setTargetLang] = useState("Japanese");
     const [isTranslating, setIsTranslating] = useState(false);
     const [modelLoaded, setModelLoaded] = useState(false);
-    const [modelId, setModelId] = useState("balanced"); // Default to Balanced (1.5B)
+    const [modelId, setModelId] = useState(() => {
+        if (typeof window !== "undefined" && window.localStorage) {
+            const saved = window.localStorage.getItem("defaultModel");
+            if (saved && ["nano", "light", "balanced", "high"].includes(saved)) {
+                return saved;
+            }
+        }
+        return "balanced";
+    });
     const [showModelMenu, setShowModelMenu] = useState(false);
     const modelMenuRef = useRef<HTMLDivElement>(null);
 
@@ -229,9 +237,53 @@ function App() {
 
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [handleSwapLanguages, modelId]); // Added modelId because cycleMode depends on it, allow it to re-bind?
-    // Actually handleKeyDown is redefined on every render if we don't wrap it or deps change.
-    // To avoid stale state, we need modelId in dep array or use functional update.
+    }, [handleSwapLanguages, modelId]);
+
+    const [startInTray, setStartInTray] = useState(() => {
+        if (typeof window !== "undefined" && window.localStorage) {
+            return window.localStorage.getItem("startInTray") === "true";
+        }
+        return false;
+    });
+
+    const [defaultModel, setDefaultModel] = useState(() => {
+        if (typeof window !== "undefined" && window.localStorage) {
+            const saved = window.localStorage.getItem("defaultModel");
+            // Validate saved model id
+            if (saved && ["nano", "light", "balanced", "high"].includes(saved)) {
+                return saved;
+            }
+        }
+        return "balanced";
+    });
+
+    // Initialize modelId with defaultModel
+    // We only want to set this ONCE on mount, but since we are using useState for modelId with a default value,
+    // we should actually initialize modelId's state using the same logic, or sync them?
+    // Actually, initializing modelId's state directly is better.
+    // So let's change the initial state of modelId.
+
+    useEffect(() => {
+        localStorage.setItem("startInTray", startInTray.toString());
+    }, [startInTray]);
+
+    useEffect(() => {
+        localStorage.setItem("defaultModel", defaultModel);
+    }, [defaultModel]);
+
+    // Apply Start in Tray
+    useEffect(() => {
+        if (startInTray) {
+            console.log("Start in Tray enabled, keeping window hidden...");
+            // No action needed as window is hidden by default now
+        } else {
+            console.log("Start in Tray disabled, showing window...");
+            appWindow.show();
+            appWindow.setFocus();
+        }
+    }, [startInTray]); // Run when startInTray is loaded (initial run)
+
+    const [showSettings, setShowSettings] = useState(false);
 
     return (
         <div className="w-full h-full bg-[#f5f7f8] dark:bg-[#101922] font-display flex flex-col overflow-hidden relative group transition-colors duration-300">
@@ -239,6 +291,14 @@ function App() {
             <header data-tauri-drag-region className="h-16 border-b border-gray-200 dark:border-white/10 flex items-center justify-between px-6 bg-white dark:bg-black shrink-0 relative z-10">
                 {/* Drag Handler & Left Side (Empty for now) */}
                 <div className="flex items-center space-x-6 z-10 relative">
+                    {/* Settings Button */}
+                    <button
+                        onClick={() => setShowSettings(true)}
+                        className="p-2 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
+                        title="Settings"
+                    >
+                        <span className="material-icons text-[20px]">settings</span>
+                    </button>
                 </div>
 
                 {/* Window Controls */}
@@ -480,6 +540,68 @@ function App() {
                 <span>{isTranslating ? "Processing..." : (modelLoaded ? "Model: Ready" : "Model: Sleeping (Low Mem)")}</span>
                 <span>Spark v1.0 • {modelId === "balanced" ? "Balanced Mode" : (modelId === "light" ? "Light Mode" : (modelId === "nano" ? "Nano Mode" : "High Quality Mode"))}</span>
             </footer>
+
+            {/* Settings Modal */}
+            {showSettings && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShowSettings(false)}>
+                    <div className="bg-white dark:bg-[#1a1a1a] w-[400px] rounded-xl shadow-2xl border border-gray-200 dark:border-white/10 p-6 flex flex-col gap-4" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex justify-between items-center border-b border-gray-200 dark:border-white/10 pb-4">
+                            <h2 className="text-lg font-medium text-gray-900 dark:text-white">Settings</h2>
+                            <button onClick={() => setShowSettings(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-white">
+                                <span className="material-icons">close</span>
+                            </button>
+                        </div>
+
+                        <div className="flex flex-col gap-4 py-2">
+                            {/* Start in Tray Option */}
+                            <div className="flex items-center justify-between">
+                                <div className="flex flex-col">
+                                    <span className="text-sm font-medium text-gray-900 dark:text-gray-200">Start in Tray</span>
+                                    <span className="text-xs text-gray-500">Hide main window on startup</span>
+                                </div>
+                                <button
+                                    onClick={() => setStartInTray(!startInTray)}
+                                    className={`w-12 h-6 rounded-full p-1 transition-colors duration-200 ease-in-out ${startInTray ? 'bg-[#258cf4]' : 'bg-gray-300 dark:bg-white/20'}`}
+                                >
+                                    <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-200 ease-in-out ${startInTray ? 'translate-x-6' : 'translate-x-0'}`}></div>
+                                </button>
+                            </div>
+
+                            {/* Default Model Option */}
+                            <div className="flex flex-col gap-2">
+                                <div className="flex flex-col">
+                                    <span className="text-sm font-medium text-gray-900 dark:text-gray-200">Default Model</span>
+                                    <span className="text-xs text-gray-500">Model to load on startup</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 mt-1">
+                                    {[
+                                        { id: "nano", label: "Nano" },
+                                        { id: "light", label: "Light" },
+                                        { id: "balanced", label: "Balanced" },
+                                        { id: "high", label: "High" }
+                                    ].map((opt) => (
+                                        <button
+                                            key={opt.id}
+                                            onClick={() => setDefaultModel(opt.id)}
+                                            className={`px-3 py-2 rounded-lg text-sm border transition-all ${defaultModel === opt.id
+                                                ? 'bg-[#258cf4] text-white border-[#258cf4]'
+                                                : 'bg-transparent text-gray-600 dark:text-gray-400 border-gray-200 dark:border-white/10 hover:border-gray-400 dark:hover:border-white/30'}`}
+                                        >
+                                            {opt.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="pt-4 border-t border-gray-200 dark:border-white/10 flex justify-end">
+                            <button onClick={() => setShowSettings(false)} className="px-4 py-2 bg-gray-100 dark:bg-white/10 hover:bg-gray-200 dark:hover:bg-white/20 rounded-lg text-sm font-medium transition-colors">
+                                Done
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
