@@ -12,7 +12,7 @@ export default function Popup() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const [logs, setLogs] = useState<string[]>([]);
+
     const [fontSize, setFontSize] = useState(16); // Default font size
     const [sourceLang, setSourceLang] = useState("English");
     const [targetLang, setTargetLang] = useState("Japanese");
@@ -27,6 +27,23 @@ export default function Popup() {
     });
     const [theme, setTheme] = useState("dark"); // Default to dark, will update from localstorage
     const [showModelMenu, setShowModelMenu] = useState(false);
+    const [showAppMenu, setShowAppMenu] = useState(false);
+    const [showSettings, setShowSettings] = useState(false);
+    const [startInTray, setStartInTray] = useState(() => {
+        if (typeof window !== "undefined" && window.localStorage) {
+            return window.localStorage.getItem("startInTray") === "true";
+        }
+        return false;
+    });
+    const [defaultModel, setDefaultModel] = useState(() => {
+        if (typeof window !== "undefined" && window.localStorage) {
+            const saved = window.localStorage.getItem("defaultModel");
+            if (saved && ["nano", "light", "balanced", "high"].includes(saved)) {
+                return saved;
+            }
+        }
+        return "balanced";
+    });
 
     // Initial setup & Theme
     useEffect(() => {
@@ -50,7 +67,7 @@ export default function Popup() {
             setTranslation("");
             setLoading(true);
             setError(null);
-            setLogs([]); // Clear logs on new request
+
 
             // Trigger translation immediately
             translateText(event.payload, sourceLang, targetLang, modelId);
@@ -66,10 +83,7 @@ export default function Popup() {
             }
         });
 
-        // Listen for debug logs
-        const unlistenDebugPromise = listen<string>("debug-log", (event) => {
-            setLogs((prev) => [...prev.slice(-4), event.payload]); // Keep last 5 logs
-        });
+
 
         // Listen for theme changes from main window
         const unlistenThemePromise = listen<string>("theme-changed", (event) => {
@@ -99,13 +113,16 @@ export default function Popup() {
             if (!target.closest('.group\\/model-menu')) {
                 setShowModelMenu(false);
             }
+            if (!target.closest('.group\\/app-menu')) {
+                setShowAppMenu(false);
+            }
         };
         document.addEventListener("mousedown", handleClickOutside);
 
         return () => {
             unlistenPromise.then((unlisten) => unlisten());
             unlistenTranslationPromise.then((unlisten) => unlisten());
-            unlistenDebugPromise.then((unlisten) => unlisten());
+
             unlistenThemePromise.then((unlisten) => unlisten());
             window.removeEventListener("keydown", handleKeyDown);
             document.removeEventListener("mousedown", handleClickOutside);
@@ -144,7 +161,6 @@ export default function Popup() {
     }, [sourceLang, targetLang, text, modelId]); // Need text to re-translate
 
 
-    // Font size adjustment via Ctrl + Scroll
     useEffect(() => {
         const handleWheel = (e: WheelEvent) => {
             if (e.ctrlKey) {
@@ -156,8 +172,12 @@ export default function Popup() {
             }
         };
         window.addEventListener("wheel", handleWheel, { passive: false });
+        // Handle local storage updates for settings
+        localStorage.setItem("startInTray", startInTray.toString());
+        localStorage.setItem("defaultModel", defaultModel);
+
         return () => window.removeEventListener("wheel", handleWheel);
-    }, []);
+    }, [startInTray, defaultModel]);
 
     async function translateText(sourceText: string, src: string, tgt: string, model: string = modelId) {
         if (!sourceText.trim()) return;
@@ -219,17 +239,25 @@ export default function Popup() {
             <div className="flex justify-between items-center w-full mb-4 shrink-0 z-50">
                 {/* App Menu */}
                 <div className="relative group/app-menu z-50">
-                    <button className="opacity-50 hover:opacity-100 p-1 rounded hover:bg-white/10">
+                    <button
+                        onClick={() => setShowAppMenu(!showAppMenu)}
+                        className={`opacity-50 hover:opacity-100 p-1 rounded hover:bg-white/10 transition-colors ${showAppMenu ? 'bg-white/10 opacity-100' : ''}`}
+                    >
                         <span className="material-icons text-lg">menu</span>
                     </button>
-                    <div className="absolute top-full left-0 mt-2 w-48 bg-[#1a1a1a] border border-white/20 rounded-lg shadow-xl overflow-hidden hidden group-hover/app-menu:block backdrop-blur-md">
-                        <button onClick={() => invoke('open_main_window')} className="w-full text-left px-4 py-3 hover:bg-white/10 flex items-center gap-2 text-sm text-gray-200">
-                            <span className="material-icons text-sm">open_in_new</span> Open Main Window
-                        </button>
-                        <button onClick={() => invoke('quit_app')} className="w-full text-left px-4 py-3 hover:bg-red-900/30 flex items-center gap-2 text-sm text-red-400">
-                            <span className="material-icons text-sm">power_settings_new</span> Quit Spark
-                        </button>
-                    </div>
+                    {showAppMenu && (
+                        <div className="absolute top-full left-0 mt-2 w-48 bg-[#1a1a1a] border border-white/20 rounded-lg shadow-xl overflow-hidden backdrop-blur-md">
+                            <button onClick={() => { setShowSettings(true); setShowAppMenu(false); }} className="w-full text-left px-4 py-3 hover:bg-white/10 flex items-center gap-2 text-sm text-gray-200 border-b border-white/5">
+                                <span className="material-icons text-sm">settings</span> Settings
+                            </button>
+                            <button onClick={() => { invoke('open_main_window'); setShowAppMenu(false); }} className="w-full text-left px-4 py-3 hover:bg-white/10 flex items-center gap-2 text-sm text-gray-200">
+                                <span className="material-icons text-sm">open_in_new</span> Open Main Window
+                            </button>
+                            <button onClick={() => { invoke('quit_app'); setShowAppMenu(false); }} className="w-full text-left px-4 py-3 hover:bg-red-900/30 flex items-center gap-2 text-sm text-red-400">
+                                <span className="material-icons text-sm">power_settings_new</span> Quit Spark
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex gap-2 items-center text-xs uppercase tracking-widest opacity-60 hover:opacity-100 transition-opacity cursor-pointer" onClick={handleSwap}>
@@ -319,9 +347,7 @@ export default function Popup() {
             <div className="w-full flex justify-between items-end gap-2">
                 {/* Debug Logs */}
                 <div className="flex-1 text-[10px] text-gray-600 font-mono leading-tight overflow-hidden h-8 flex flex-col justify-end">
-                    {logs.map((log, i) => (
-                        <div key={i} className="truncate">{log}</div>
-                    ))}
+                    {/* Debug logs removed */}
                 </div>
 
                 <button
@@ -332,6 +358,96 @@ export default function Popup() {
                     Copy & Close
                 </button>
             </div>
+
+            {/* Settings Modal */}
+            {
+                showSettings && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShowSettings(false)}>
+                        <div className="bg-white dark:bg-[#1a1a1a] w-[400px] rounded-xl shadow-2xl border border-gray-200 dark:border-white/10 p-6 flex flex-col gap-4" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex justify-between items-center border-b border-gray-200 dark:border-white/10 pb-4">
+                                <h2 className="text-lg font-medium text-gray-900 dark:text-white">Settings</h2>
+                                <button onClick={() => setShowSettings(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-white">
+                                    <span className="material-icons">close</span>
+                                </button>
+                            </div>
+
+                            <div className="flex flex-col gap-4 py-2">
+                                {/* Theme Option */}
+                                <div className="flex items-center justify-between">
+                                    <div className="flex flex-col">
+                                        <span className="text-sm font-medium text-gray-900 dark:text-gray-200">Theme</span>
+                                        <span className="text-xs text-gray-500">Appearance setting</span>
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            const newTheme = theme === "dark" ? "light" : "dark";
+                                            setTheme(newTheme);
+                                            localStorage.setItem("theme", newTheme);
+                                            // Update local DOM immediately
+                                            if (newTheme === "dark") {
+                                                document.documentElement.classList.add("dark");
+                                            } else {
+                                                document.documentElement.classList.remove("dark");
+                                            }
+                                        }}
+                                        className={`px-3 py-1 rounded-lg text-xs font-medium border transition-colors ${theme === "dark"
+                                            ? "bg-gray-800 text-white border-gray-700"
+                                            : "bg-gray-100 text-gray-900 border-gray-300"
+                                            }`}
+                                    >
+                                        {theme === "dark" ? "Dark Mode" : "Light Mode"}
+                                    </button>
+                                </div>
+
+                                {/* Start in Tray Option */}
+                                <div className="flex items-center justify-between">
+                                    <div className="flex flex-col">
+                                        <span className="text-sm font-medium text-gray-900 dark:text-gray-200">Start in Tray</span>
+                                        <span className="text-xs text-gray-500">Hide main window on startup</span>
+                                    </div>
+                                    <button
+                                        onClick={() => setStartInTray(!startInTray)}
+                                        className={`w-12 h-6 rounded-full p-1 transition-colors duration-200 ease-in-out ${startInTray ? 'bg-[#258cf4]' : 'bg-gray-300 dark:bg-white/20'}`}
+                                    >
+                                        <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-200 ease-in-out ${startInTray ? 'translate-x-6' : 'translate-x-0'}`}></div>
+                                    </button>
+                                </div>
+
+                                {/* Default Model Option */}
+                                <div className="flex flex-col gap-2">
+                                    <div className="flex flex-col">
+                                        <span className="text-sm font-medium text-gray-900 dark:text-gray-200">Default Model</span>
+                                        <span className="text-xs text-gray-500">Model to load on startup</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2 mt-1">
+                                        {[
+                                            { id: "nano", label: "Nano" },
+                                            { id: "light", label: "Light" },
+                                            { id: "balanced", label: "Balanced" },
+                                            { id: "high", label: "High" }
+                                        ].map((opt) => (
+                                            <button
+                                                key={opt.id}
+                                                onClick={() => setDefaultModel(opt.id)}
+                                                className={`px-3 py-2 rounded-lg text-sm border transition-all ${defaultModel === opt.id
+                                                    ? 'bg-[#258cf4] text-white border-[#258cf4]'
+                                                    : 'bg-transparent text-gray-600 dark:text-gray-400 border-gray-200 dark:border-white/10 hover:border-gray-400 dark:hover:border-white/30'}`}
+                                            >
+                                                {opt.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="pt-4 border-t border-gray-200 dark:border-white/10 flex justify-end">
+                                <button onClick={() => setShowSettings(false)} className="px-4 py-2 bg-gray-100 dark:bg-white/10 hover:bg-gray-200 dark:hover:bg-white/20 rounded-lg text-sm font-medium transition-colors">
+                                    Done
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
         </div>
     );
 }
